@@ -1,119 +1,150 @@
-# 🔐 GenLayer API Key Service
+# 🛠️ GenLayer External API Toolkit
 
-A secure service for using private API keys inside GenLayer Intelligent Contracts — without ever exposing them publicly.
+A collection of reusable Intelligent Contract libraries for fetching live external data on GenLayer — no oracle, no API keys, no trusted third parties.
 
-> “Use premium APIs inside your contract. Validators use the key privately. Nobody else sees it.”
-
------
-
-## 🔍 The Problem
-
-Every useful API requires a key:
-
-- CoinMarketCap — real-time crypto prices
-- OpenWeatherMap — live weather data
-- NewsAPI — latest headlines
-
-But in traditional smart contracts, everything is public on-chain. You cannot use a private API key without exposing it to everyone.
-
-GenLayer solves this because API keys are only used inside the validator’s private execution environment — the non-deterministic block — and are never returned to external callers.
+> **“Fetch live crypto prices and verify credentials directly on-chain. Each validator independently fetches the data and reaches consensus — no centralized intermediary needed.”**
 
 -----
 
-## ⚙️ How It Works
-Owner deploys ApiKeyService
-    └─> Registers API keys via set_*_key() methods
-    └─> Keys stored in contract state
+## 📦 What’s Inside
 
-Anyone calls fetch_crypto_price("BTC")
-    └─> Non-det block runs PRIVATELY inside each validator
-    └─> Key is used to call CoinMarketCap API internally
-    └─> Only the RESULT is returned on-chain
-    └─> The key itself is never exposed to callers
-
-Anyone calls get_last_result()
-    └─> Returns the fetched price data
-    └─> No API key visible anywhere
+|File               |Purpose                                                                 |
+|-------------------|------------------------------------------------------------------------|
+|`price_feed_lib.py`|Fetch live crypto prices from CoinGecko free public API                 |
+|`credential_lib.py`|Verify academic degrees and professional certifications from public URLs|
 
 -----
 
-## 📦 Supported APIs
+## 🏗️ Architecture
 
-|API           |Method                      |Free Fallback       |
-|--------------|----------------------------|--------------------|
-|CoinMarketCap |`fetch_crypto_price(symbol)`|✅ CoinGecko public  |
-|OpenWeatherMap|`fetch_weather(city)`       |✅ wttr.in public    |
-|NewsAPI       |`fetch_latest_news(topic)`  |✅ Google News public|
+This toolkit follows the correct GenLayer pattern for external data:
 
+```
+Each validator independently:
+    → calls gl.nondet.web.get(url) to fetch public API
+    → processes the response
+    → reaches consensus via gl.eq_principle.*
 
-> 💡 All methods work even without a registered API key — they fall back to free public sources automatically.
+No API keys. No shared secrets. No centralized vaults.
+```
 
------
+For **binary checks** (is price above X?): `gl.eq_principle.strict_eq()` — all validators must agree exactly.
 
-## 🚀 Quick Deploy (GenLayer Studio)
-
-1. Go to [studio.genlayer.com](https://studio.genlayer.com)
-1. Create new contract → paste api_key_service.py
-1. Deploy — no parameters needed
-
-### Register your API keys (optional):
-set_coinmarketcap_key → "your_key_here"
-set_openweather_key   → "your_key_here"
-set_newsapi_key       → "your_key_here"
-
-### Fetch data:
-fetch_crypto_price → symbol: "BTC"
-fetch_weather      → city: "Jakarta"
-fetch_latest_news  → topic: "bitcoin"
-
-### Read result:
-get_last_result() → "67423.50"
-get_last_source() → "coinmarketcap"
+For **qualitative checks** (does credential match?): `gl.eq_principle.prompt_non_comparative()` — AI evaluates equivalence across validators.
 
 -----
 
-## 💡 Usage in Another Contract
-# Another contract can call this service
-class InsuranceContract(gl.Contract):
+## 📈 Price Feed Library
+
+Fetch live crypto prices directly from CoinGecko’s free public API.
+
+### Methods
+
+|Method                 |Parameters          |Returns              |
+|-----------------------|--------------------|---------------------|
+|`check_price_above`    |`coin_id, threshold`|`"true"` or `"false"`|
+|`check_price_below`    |`coin_id, threshold`|`"true"` or `"false"`|
+|`fetch_market_cap_rank`|`coin_id`           |rank number as string|
+|`fetch_crypto_price`   |`coin_id`           |price in USD         |
+|`get_state`            |—                   |last result          |
+
+### Example Usage
+
+```python
+# Check if BTC is above $60,000
+check_price_above("bitcoin", "60000") → "true"
+
+# Check if ETH is below $5,000
+check_price_below("ethereum", "5000") → "true"
+
+# Get market cap rank
+fetch_market_cap_rank("solana") → "5"
+```
+
+### Use in Another Contract
+
+```python
+from genlayer import *
+import json
+
+class AutoLiquidator(gl.Contract):
     state: str
 
     def __init__(self):
-        self.state = "active"
+        self.state = "monitoring"
 
     @gl.public.write
-    def check_weather_claim(self, city: str) -> None:
-        def fetch():
-            url = "https://wttr.in/" + city + "?format=j1"
-            return gl.get_webpage(url, mode="text")
+    def check_liquidation(self) -> None:
+        url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
 
-        result = gl.eq_principles.eq_principle_prompt_non_comparative(
-            fetch,
-            task="Is there extreme weather (storm, flood, hurricane) in " + city + "? Respond: yes or no",
-            criteria="Answer must be yes or no"
-        )
-        if str(result).strip() == "yes":
-            self.state = "claim_approved"
-        else:
-            self.state = "claim_rejected"
+        def fetch() -> str:
+            res = gl.nondet.web.get(url)
+            data = json.loads(res.body.decode("utf-8"))
+            price = float(data["ethereum"]["usd"])
+            return "true" if price < 2000.0 else "false"
+
+        result = gl.eq_principle.strict_eq(fetch)
+        self.state = "liquidated" if str(result) == "true" else "safe"
+
+    @gl.public.view
+    def get_state(self) -> str:
+        return self.state
+```
 
 -----
 
-## 🆚 vs Traditional Approach
+## 🎓 Credential Verifier Library
 
-|Feature            |Traditional (Ethereum)|GenLayer API Key Service  |
-|-------------------|----------------------|--------------------------|
-|API key privacy    |❌ Impossible          |✅ Private in validator env|
-|External API access|❌ Oracle required     |✅ Direct fetch            |
-|Free fallback      |❌                     |✅ Auto fallback           |
-|Supported sources  |Fixed oracle feeds    |✅ Any public URL          |
-|Language           |Solidity              |✅ Python                  |
+Verify academic degrees and professional certifications from any public URL — AI validators independently evaluate the page and reach consensus.
+
+### Methods
+
+|Method        |Parameters                                                     |Returns                               |
+|--------------|---------------------------------------------------------------|--------------------------------------|
+|`verify`      |`credential_url, holder_name, expected_issuer, credential_type`|`"verified: ..."` or `"rejected: ..."`|
+|`check_domain`|`url, expected_domain`                                         |`"valid"` or `"invalid"`              |
+|`extract_info`|`credential_url`                                               |`"name|issuer|type"`                  |
+|`get_state`   |—                                                              |last result                           |
+
+### Example Usage
+
+```
+verify(
+    "https://www.credly.com/badges/example",
+    "John Doe",
+    "Amazon Web Services",
+    "AWS Solutions Architect"
+) → "verified: Name, issuer and credential type all match."
+```
+
+-----
+
+## 🚀 Deploy (GenLayer Studio)
+
+1. Go to [studio.genlayer.com](https://studio.genlayer.com)
+1. Create new contract → paste `price_feed_lib.py` or `credential_lib.py`
+1. Deploy — **no parameters needed**
+1. Call any Write method to fetch live data
+1. Call `get_state` (Read) to see the result
+
+-----
+
+## 🆚 vs Traditional Oracle Solutions
+
+|Feature              |Chainlink |Pyth      |GenLayer Toolkit|
+|---------------------|----------|----------|----------------|
+|Oracle dependency    |✅ Required|✅ Required|❌ Not needed    |
+|API key required     |Sometimes |Sometimes |❌ Never         |
+|Centralized vault    |N/A       |N/A       |❌ None          |
+|Custom data sources  |❌         |❌         |✅ Any public URL|
+|Language             |Solidity  |Rust      |✅ Python        |
+|Subjective validation|❌         |❌         |✅ AI-powered    |
 
 -----
 
 ## 🧪 Testnet Deployment
 
-Network: GenLayer Testnet Bradbury
-Transaction Hash: *(update after deployment)*
+**Network:** GenLayer Testnet Bradbury
 
 -----
 
