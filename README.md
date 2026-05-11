@@ -1,8 +1,8 @@
 # 🛠️ GenLayer External API Toolkit
 
-A collection of reusable Intelligent Contract libraries for fetching live external data on GenLayer — no oracle, no trusted third parties.
+Intelligent Contract libraries for fetching live crypto prices and verifying public certificates on GenLayer — no oracle, no intermediaries.
 
-> **"Fetch live crypto prices and verify public certificates directly on-chain. Each validator independently fetches the data and reaches consensus."**
+> **"Each validator independently fetches live data from public endpoints and reaches consensus on-chain — no centralized intermediary needed."**
 
 -----
 
